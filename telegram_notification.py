@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import argparse
 import os
-from collections import defaultdict
+from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from html import escape
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
@@ -98,8 +100,34 @@ def _build_instructor_label(spot: Dict[str, Any]) -> str:
     return nickname or name or "Instrutor"
 
 
-def format_spot_summary(spots: Iterable[Dict[str, Any]]) -> str:
-    """Gera uma mensagem amigável para envio ao Telegram."""
+@dataclass
+class FormattedSummary:
+    """Empacota a mensagem formatada em HTML e em texto plano."""
+
+    html: str
+    plain_text: str
+
+
+def _format_bike_codes(codes: List[str]) -> Tuple[str, str]:
+    """Gera a representação das bikes em HTML (com spoiler) e texto plano."""
+
+    if not codes:
+        return (
+            "Nenhuma bike com código disponível",
+            "Nenhuma bike com código disponível",
+        )
+
+    joined_plain = ", ".join(codes)
+    joined_html = escape(" • ".join(codes))
+    return (
+        f"<b>{len(codes)} bike{'s' if len(codes) > 1 else ''} livres:</b> "
+        f"<tg-spoiler>{joined_html}</tg-spoiler>",
+        f"{len(codes)} bike{'s' if len(codes) > 1 else ''} livres: {joined_plain}",
+    )
+
+
+def format_spot_summary(spots: Iterable[Dict[str, Any]]) -> FormattedSummary:
+    """Gera mensagens amigáveis (HTML e texto plano) para envio e logs."""
 
     spots_list = sorted(
         list(spots),
@@ -107,66 +135,147 @@ def format_spot_summary(spots: Iterable[Dict[str, Any]]) -> str:
     )
 
     if not spots_list:
-        return "Nenhuma vaga disponível encontrada no período consultado."
+        message = "Nenhuma vaga disponível encontrada no período consultado."
+        return FormattedSummary(
+            html=f"<b>{escape(message)}</b>",
+            plain_text=message,
+        )
 
-    grouped_spots: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    grouped_by_day: Dict[str, OrderedDict[str, Dict[str, Any]]] = {}
+    day_order: List[str] = []
+
     for spot in spots_list:
         start_dt = _parse_start_time(spot.get("start_time"))
-        if start_dt is not None:
-            key = start_dt.date().isoformat()
-        else:
-            key = "sem-data"
-        grouped_spots[key].append(spot)
+        day_key = start_dt.date().isoformat() if start_dt else "sem-data"
 
-    ordered_keys = sorted(
-        grouped_spots.keys(),
-        key=lambda key: (key == "sem-data", key),
-    )
+        if day_key not in grouped_by_day:
+            grouped_by_day[day_key] = OrderedDict()
+            day_order.append(day_key)
 
-    lines: List[str] = [
-        "🏋️‍♀️ Vagas de aula liberadas!",
+        event_key = "|".join(
+            [
+                spot.get("token") or "sem-token",
+                spot.get("start_time") or "sem-inicio",
+                spot.get("event_hour") or "sem-horario",
+                spot.get("event_name") or "sem-nome",
+            ]
+        )
+
+        event_group = grouped_by_day[day_key].setdefault(
+            event_key,
+            {"spots": [], "start_dt": start_dt},
+        )
+
+        if event_group.get("start_dt") is None and start_dt is not None:
+            event_group["start_dt"] = start_dt
+
+        event_group["spots"].append(spot)
+
+    html_lines: List[str] = [
+        "<b>🏋️‍♀️ Vagas de aula liberadas!</b>",
         "",
-        "Olha só o que encontramos nas próximas duas semanas:",
+        "Confira as oportunidades nas próximas duas semanas:",
         "",
     ]
 
-    for key in ordered_keys:
-        day_spots = grouped_spots[key]
-        representative = day_spots[0]
-        start_dt = _parse_start_time(representative.get("start_time"))
+    text_lines: List[str] = [
+        "🏋️‍♀️ Vagas de aula liberadas!",
+        "",
+        "Confira as oportunidades nas próximas duas semanas:",
+        "",
+    ]
+
+    for day_key in day_order:
+        day_groups = grouped_by_day[day_key]
+        representative = next(iter(day_groups.values()))
+        start_dt = representative.get("start_dt")
 
         if start_dt is None:
-            header = "📅 Data não informada"
+            header_html = "<b>📅 Data não informada</b>"
+            header_text = "📅 Data não informada"
         else:
             weekday = WEEKDAY_LABELS[start_dt.weekday()]
-            header = f"📅 {start_dt.strftime('%d/%m/%Y')} ({weekday})"
+            date_label = start_dt.strftime("%d/%m/%Y")
+            header_html = f"<b>📅 {escape(date_label)} ({escape(weekday)})</b>"
+            header_text = f"📅 {date_label} ({weekday})"
 
-        lines.append(header)
+        html_lines.append(header_html)
+        text_lines.append(header_text)
 
-        for spot in day_spots:
-            start_dt = _parse_start_time(spot.get("start_time"))
-            event_hour = spot.get("event_hour")
+        for event_group in day_groups.values():
+            spots_for_event = event_group["spots"]
+            if not spots_for_event:
+                continue
+
+            representative_spot = spots_for_event[0]
+            start_dt = event_group.get("start_dt")
+
+            event_hour = representative_spot.get("event_hour")
             if start_dt is not None and not event_hour:
                 event_hour = start_dt.strftime("%H:%M")
 
-            event_name = spot.get("event_name") or "Aula"
-            instructor = _build_instructor_label(spot)
-            code = spot.get("spot_code") or "Código indisponível"
-            duration = spot.get("duration_time")
-            tagline = spot.get("instructor_tagline")
+            hour_label = event_hour or "Horário não informado"
+            duration = representative_spot.get("duration_time") or "Duração não informada"
+            event_name = representative_spot.get("event_name") or "Aula"
+            instructor = _build_instructor_label(representative_spot)
+            tagline = representative_spot.get("instructor_tagline")
 
-            lines.append(f"   • {event_hour or 'Horário não informado'} — {event_name}")
-            lines.append(f"     Instrutor: {instructor}")
+            bike_codes = [
+                code
+                for code in (
+                    spot_item.get("spot_code")
+                    for spot_item in spots_for_event
+                )
+                if code
+            ]
+            bikes_html, bikes_text = _format_bike_codes(bike_codes)
+
+            html_lines.extend(
+                [
+                    "╭────────────────────────────╮",
+                    f"│ 🕒 <b>{escape(hour_label)}</b> • {escape(duration)}",
+                    f"│ 🎯 {escape(event_name)}",
+                    f"│ 👤 {escape(instructor)}",
+                ]
+            )
+            text_lines.extend(
+                [
+                    "╭────────────────────────────╮",
+                    f"│ 🕒 {hour_label} • {duration}",
+                    f"│ 🎯 {event_name}",
+                    f"│ 👤 {instructor}",
+                ]
+            )
+
             if tagline:
-                lines.append(f"     ✨ {tagline}")
-            lines.append(f"     Bike liberada: {code}")
-            if duration:
-                lines.append(f"     Duração: {duration}")
-            lines.append("")
+                html_lines.append(f"│ ✨ {escape(tagline)}")
+                text_lines.append(f"│ ✨ {tagline}")
 
-    lines.append("Boas pedaladas! 🚴‍♀️")
+            html_lines.extend(
+                [
+                    f"│ 🚲 {bikes_html}",
+                    "╰────────────────────────────╯",
+                    "",
+                ]
+            )
+            text_lines.extend(
+                [
+                    f"│ 🚲 {bikes_text}",
+                    "╰────────────────────────────╯",
+                    "",
+                ]
+            )
 
-    return "\n".join(lines).strip()
+        html_lines.append("")
+        text_lines.append("")
+
+    html_lines.append("<i>Boas pedaladas! 🚴‍♀️</i>")
+    text_lines.append("Boas pedaladas! 🚴‍♀️")
+
+    html_message = "\n".join(html_lines).strip()
+    text_message = "\n".join(text_lines).strip()
+
+    return FormattedSummary(html=html_message, plain_text=text_message)
 
 
 def send_telegram_message(
@@ -175,6 +284,7 @@ def send_telegram_message(
     message: str,
     *,
     session: Optional[requests.Session] = None,
+    parse_mode: str = "HTML",
 ) -> Dict:
     """Envia uma mensagem de texto para o Telegram."""
 
@@ -186,6 +296,7 @@ def send_telegram_message(
     payload = {
         "chat_id": chat_id,
         "disable_web_page_preview": True,
+        "parse_mode": parse_mode,
     }
 
     responses: List[Dict[str, Any]] = []
@@ -265,7 +376,7 @@ def main() -> None:
 
     result = automation.run_automation()
     available_spots = result.spots
-    message = format_spot_summary(available_spots)
+    summary = format_spot_summary(available_spots)
 
     execution_report = (
         "Tempo total da automação: "
@@ -276,21 +387,21 @@ def main() -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as summary_file:
-            summary_file.write(f"{execution_report}\n\n{message}\n")
+            summary_file.write(f"{execution_report}\n\n{summary.plain_text}\n")
 
     if args.dry_run:
-        print(message)
+        print(summary.plain_text)
         print()
         print(execution_report)
         return
 
     if not available_spots:
-        print(message)
+        print(summary.plain_text)
         print()
         print(execution_report)
         return
 
-    send_telegram_message(token or "", chat_id or "", message)
+    send_telegram_message(token or "", chat_id or "", summary.html)
     print(execution_report)
 
 
