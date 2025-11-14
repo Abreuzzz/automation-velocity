@@ -18,11 +18,14 @@ Este repositório contém dois scripts principais:
    ```
 
 2. Exporte as variáveis de ambiente necessárias (quando quiser enviar a
-   notificação de fato):
+   notificação de fato). Utilize o chat pessoal (`TELEGRAM_CHAT_ID`) para
+   testes e, se desejar encaminhar para o grupo diretamente do ambiente
+   local, informe também o identificador coletivo (`TELEGRAM_GROUPCHAT_ID`):
 
    ```bash
    export TELEGRAM_BOT_TOKEN="seu-token"
    export TELEGRAM_CHAT_ID="seu-chat-id"
+   export TELEGRAM_GROUPCHAT_ID="chat-do-grupo"
    ```
 
 3. Execute a automação isoladamente para inspecionar o JSON retornado:
@@ -54,12 +57,32 @@ repositório** nas configurações do GitHub:
 3. Clique em **New repository secret**.
 4. Defina o nome do segredo como `TELEGRAM_BOT_TOKEN` e cole o token fornecido
    pelo BotFather no campo **Secret**.
-5. Repita o processo para armazenar o `TELEGRAM_CHAT_ID`, caso queira evitar que
-   o identificador do chat apareça em claro.
+5. Crie também os segredos `TELEGRAM_GROUPCHAT_ID` (grupo oficial da Velocity)
+   e `TELEGRAM_CHAT_ID` (chat pessoal usado para testes).
 
-Os scripts esperam as variáveis de ambiente `TELEGRAM_BOT_TOKEN` e
-`TELEGRAM_CHAT_ID` durante a execução (por exemplo, em um workflow do
-GitHub Actions).
+Os scripts utilizam esses três valores para escolher automaticamente o chat de
+destino durante a execução (por exemplo, em um workflow do GitHub Actions).
+
+## Estratégia de branches para envios
+
+Para manter o grupo da Velocity livre de notificações de teste, utilize duas
+branches:
+
+- `main`: branch oficial que envia mensagens para o grupo utilizando o
+  `TELEGRAM_GROUPCHAT_ID`.
+- `testes` (ou qualquer outra branch que você preferir para validar mudanças):
+  envia mensagens para o identificador pessoal configurado em
+  `TELEGRAM_CHAT_ID`.
+
+Qualquer branch diferente de `main` (ou `master`) usará automaticamente o chat
+pessoal. Você pode criar a branch de testes executando, por exemplo:
+
+```bash
+git checkout -b testes
+```
+
+Ao abrir um pull request ou rodar o workflow nessa branch alternativa, as
+mensagens serão direcionadas apenas para o chat pessoal.
 
 ## Execução automática no GitHub Actions
 
@@ -75,7 +98,8 @@ Durante a execução, o workflow irá:
 2. Configurar o Python 3.11.
 3. Instalar as dependências listadas em `requirements.txt`.
 4. Executar `python telegram_notification.py`, reutilizando os segredos
-   `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` configurados anteriormente.
+   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_GROUPCHAT_ID` e `TELEGRAM_CHAT_ID`
+   configurados anteriormente.
 
 ## Monitoramento do tempo de execução
 

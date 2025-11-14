@@ -29,5 +29,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_GROUPCHAT_ID: ${{ secrets.TELEGRAM_GROUPCHAT_ID }}
         run: |
           python telegram_notification.py

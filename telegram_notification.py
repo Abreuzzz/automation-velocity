@@ -243,36 +243,32 @@ def format_spot_summary(spots: Iterable[Dict[str, Any]]) -> FormattedSummary:
 
             html_lines.extend(
                 [
-                    "╭────────────────────────────╮",
-                    f"│ 🕒 <b>{escape(hour_label)}</b> • {escape(duration)}",
-                    f"│ 🎯 {escape(event_name)}",
-                    f"│ 👤 {escape(instructor)}",
+                    f"🕒 <b>{escape(hour_label)}</b> • {escape(duration)}",
+                    f"🎯 {escape(event_name)}",
+                    f"👤 {escape(instructor)}",
                 ]
             )
             text_lines.extend(
                 [
-                    "╭────────────────────────────╮",
-                    f"│ 🕒 {hour_label} • {duration}",
-                    f"│ 🎯 {event_name}",
-                    f"│ 👤 {instructor}",
+                    f"🕒 {hour_label} • {duration}",
+                    f"🎯 {event_name}",
+                    f"👤 {instructor}",
                 ]
             )
 
             if tagline:
-                html_lines.append(f"│ ✨ {escape(tagline)}")
-                text_lines.append(f"│ ✨ {tagline}")
+                html_lines.append(f"✨ {escape(tagline)}")
+                text_lines.append(f"✨ {tagline}")
 
             html_lines.extend(
                 [
-                    f"│ 🚲 {bikes_html}",
-                    "╰────────────────────────────╯",
+                    f"🚲 {bikes_html}",
                     "",
                 ]
             )
             text_lines.extend(
                 [
-                    f"│ 🚲 {bikes_text}",
-                    "╰────────────────────────────╯",
+                    f"🚲 {bikes_text}",
                     "",
                 ]
             )
@@ -364,8 +360,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--chat-id",
         help=(
-            "Identificador do chat do Telegram. Substitui a variável de ambiente "
-            "TELEGRAM_CHAT_ID quando informado."
+            "Identificador do chat do Telegram. Substitui a seleção automática "
+            "entre TELEGRAM_GROUPCHAT_ID e TELEGRAM_CHAT_ID quando informado."
         ),
     )
     parser.add_argument(
@@ -383,7 +379,20 @@ def main() -> None:
     args = _build_parser().parse_args()
 
     token = args.token or os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = args.chat_id or os.environ.get("TELEGRAM_CHAT_ID")
+
+    if args.chat_id:
+        chat_id = args.chat_id
+    else:
+        branch_name = (os.environ.get("GITHUB_REF_NAME") or "").lower()
+        group_chat = os.environ.get("TELEGRAM_GROUPCHAT_ID")
+        personal_chat = os.environ.get("TELEGRAM_CHAT_ID")
+
+        if branch_name in {"main", "master"}:
+            chat_id = group_chat or personal_chat
+        elif branch_name:
+            chat_id = personal_chat or group_chat
+        else:
+            chat_id = personal_chat or group_chat
 
     result = automation.run_automation()
     available_spots = result.spots
