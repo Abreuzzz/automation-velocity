@@ -115,6 +115,13 @@ def fetch_schedule(
         }
 
         response = session.get(SCHEDULE_URL, params=params, timeout=30)
+
+        # Em determinados períodos a API pode retornar 404 para páginas fora do
+        # intervalo disponível. Isso não deve derrubar toda a automação, pois
+        # significa apenas que não existem mais resultados naquele range.
+        if response.status_code == 404:
+            continue
+
         response.raise_for_status()
         payload = response.json()
 
