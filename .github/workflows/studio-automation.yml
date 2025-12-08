@@ -2,7 +2,7 @@ name: Executar automação Studio Velocity
 
 on:
   schedule:
-    - cron: '0 0,13-23 * * *'
+    - cron: '0 12,20 * * *'
       timezone: 'America/Sao_Paulo'
   workflow_dispatch:
 
